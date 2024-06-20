@@ -147,7 +147,7 @@ def update_application_count(updated_df, new_record_ids):
         return updated_df
     except Exception as e:
         LOGGER.error(f"update_application_count: 応募回数の更新中にエラーが発生しました: {e}")
-        raiseg
+        raise
 
 def main():
     # settings.iniファイルの読み込み
