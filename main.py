@@ -43,21 +43,32 @@ def update_records(new_df, old_df, target_date, new_record_ids):
                          '研修初日', '在籍確認', 'データタイプ', '最終提出日', '請求確定日', '提出期限',
                          '提出期限超過月数', '保留月数', '最終変更者', '更新日']
 
-    # 更新日の形式を変換
-    try:
-        new_df['更新日'] = pd.to_datetime(new_df['更新日'], format='%Y/%m/%d %H:%M:%S')
-    except ValueError:
-        # フォーマットが異なるデータがある場合に対応するため、再度変換を試みる
-        new_df['更新日'] = pd.to_datetime(new_df['更新日'], format='%Y-%m-%d %H:%M:%S')
+    # 日付列を指定
+    date_columns = ['研修初日', '最終提出日', '請求確定日', '提出期限', '更新日']
 
-    # 日付の変換に失敗したデータを除外
-    invalid_dates = new_df['更新日'].isna()
-    if invalid_dates.any():
-        LOGGER.warning("日付の形式が正しくないレコードを除外します: {}".format(new_df[invalid_dates]))
-        new_df = new_df.dropna(subset=['更新日'])
+    # 日付列を適切な形式に変換
+    for col in date_columns:
+        try:
+            new_df[col] = pd.to_datetime(new_df[col], errors='coerce').dt.strftime('%Y/%m/%d')
+            old_df[col] = pd.to_datetime(old_df[col], errors='coerce').dt.strftime('%Y/%m/%d')
+            LOGGER.info(f"{col}の変換後の値:\n{new_df[col].head()}")
+        except Exception as e:
+            LOGGER.error(f"列 {col} の日付変換中にエラーが発生しました: {e}")
+            LOGGER.error(new_df[col].head())
 
-    # 指定された日付以降のレコードを抽出
-    new_records = new_df[new_df['更新日'].dt.date >= target_date]
+    # 特定の日付を置換
+    new_df['研修初日'] = new_df['研修初日'].apply(lambda x: '2100/12/31' if x == '9999/12/31' else x)
+
+    # 指定された日付を文字列形式に変換
+    target_date_str = target_date.strftime('%Y/%m/%d')
+    LOGGER.info(f"変換後のtarget_date_str: {target_date_str}")
+
+    # データフレームの状態をログ出力
+    LOGGER.info(f"新規データフレームの最初の5行:\n{new_df.head()}")
+    LOGGER.info(f"旧データフレームの最初の5行:\n{old_df.head()}")
+
+     # 指定された日付以降のレコードを抽出
+    new_records = new_df[new_df['更新日'] >= target_date_str]
 
     # 新規レコードで追加したレコードを除外
     new_records = new_records[~new_records['応募ID'].isin(new_record_ids)]
@@ -67,16 +78,15 @@ def update_records(new_df, old_df, target_date, new_record_ids):
     # 更新前のレコード数を取得
     old_record_count = len(old_df)
 
+    # 元の列順序を保存
+    original_columns = old_df.columns.tolist()
+
     # 指定された列の値を更新
     old_df.set_index('応募ID', inplace=True)
     new_records.set_index('応募ID', inplace=True)
 
     LOGGER.info("更新前のレコード数: {}件".format(old_record_count))
     LOGGER.info("更新対象のレコード数: {}件".format(len(new_records)))
-
-    # 更新対象のレコードをログ出力
-    for index, row in new_records.iterrows():
-        LOGGER.info("更新対象レコード: 応募ID={}, 更新日={}".format(index, row['更新日']))
 
     # 更新されたレコード数を計算するための変数を初期化
     updated_records = 0
@@ -96,11 +106,24 @@ def update_records(new_df, old_df, target_date, new_record_ids):
             LOGGER.info("マッチしなかったレコード: 応募ID={}".format(index))
 
     old_df.update(new_records[columns_to_update])
+    
     old_df.reset_index(inplace=True)
+
+    # 元の列順序に戻す
+    old_df = old_df[original_columns]
+
+    # 新規レコードを詰めて追加
+    remaining_new_records = new_df[new_df['応募ID'].isin(new_record_ids) & ~new_df.index.isin(new_records.index)]
+    updated_df = pd.concat([old_df, remaining_new_records], ignore_index=True)
+
+    # 最終行数を再取得してからカウント
+    final_record_count = len(updated_df)
+    LOGGER.info("最終レコード数: {}件".format(final_record_count))
+    updated_records = final_record_count - old_record_count
 
     LOGGER.info("更新されたレコード数: {}件".format(updated_records))
 
-    return old_df, updated_records
+    return updated_df, updated_records
 
 def get_target_date(date_str):
     """設定ファイルの日付文字列を解析して日付を返す関数"""
