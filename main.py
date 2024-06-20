@@ -44,7 +44,17 @@ def update_records(new_df, old_df, target_date, new_record_ids):
                          '提出期限超過月数', '保留月数', '最終変更者', '更新日']
 
     # 更新日の形式を変換
-    new_df['更新日'] = pd.to_datetime(new_df['更新日'], format='%Y/%m/%d %H:%M:%S')
+    try:
+        new_df['更新日'] = pd.to_datetime(new_df['更新日'], format='%Y/%m/%d %H:%M:%S')
+    except ValueError:
+        # フォーマットが異なるデータがある場合に対応するため、再度変換を試みる
+        new_df['更新日'] = pd.to_datetime(new_df['更新日'], format='%Y-%m-%d %H:%M:%S')
+
+    # 日付の変換に失敗したデータを除外
+    invalid_dates = new_df['更新日'].isna()
+    if invalid_dates.any():
+        LOGGER.warning("日付の形式が正しくないレコードを除外します: {}".format(new_df[invalid_dates]))
+        new_df = new_df.dropna(subset=['更新日'])
 
     # 指定された日付以降のレコードを抽出
     new_records = new_df[new_df['更新日'].dt.date >= target_date]
